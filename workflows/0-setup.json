@@ -1,0 +1,465 @@
+{
+  "name": "Events Newsletter · 0 Setup",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Events Newsletter · Setup\nRun this once: press **Execute workflow**. It creates three data tables: `newsletter_sources` (the pages to read), `newsletter_sent` (events that were already in an issue) and `newsletter_runs` (one row per run, with the tokens it used).\n\nThen open **Data tables → newsletter_sources** and add one row per page that lists events: a name, the address, and `enabled` ticked.\n\nThe webhook does the same for scripted installs and can take the sources in its body. You can delete it.",
+        "width": 640,
+        "height": 260,
+        "color": 4
+      },
+      "id": "0d409387-1685-4bd0-8ed1-1a313277963f",
+      "name": "About",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -320
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "b3d2a12c-afcd-4e82-89a6-624898cbc5a2",
+      "name": "Run once",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "newsletter/setup",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "696b772e-9358-4342-8b76-dae72c2e0d92",
+      "name": "Or call",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        180
+      ],
+      "webhookId": "f96670fd-bf6a-453a-87d4-de55b1e8bb80",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "eventsNewsKey",
+          "name": "Events Newsletter Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "table",
+        "operation": "create",
+        "tableName": "newsletter_sources",
+        "columns": {
+          "column": [
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "url",
+              "type": "string"
+            },
+            {
+              "name": "enabled",
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {
+          "createIfNotExists": true
+        }
+      },
+      "id": "e7854b63-c467-4817-8e55-294f859fe3a1",
+      "name": "Create sources",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "table",
+        "operation": "create",
+        "tableName": "newsletter_sent",
+        "columns": {
+          "column": [
+            {
+              "name": "event_key",
+              "type": "string"
+            },
+            {
+              "name": "title",
+              "type": "string"
+            },
+            {
+              "name": "event_date",
+              "type": "string"
+            },
+            {
+              "name": "source",
+              "type": "string"
+            },
+            {
+              "name": "run_id",
+              "type": "string"
+            },
+            {
+              "name": "sent_at",
+              "type": "date"
+            }
+          ]
+        },
+        "options": {
+          "createIfNotExists": true
+        }
+      },
+      "id": "246391f2-a852-4e28-843c-5f96d2d6acaa",
+      "name": "Create sent",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        460,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "table",
+        "operation": "create",
+        "tableName": "newsletter_runs",
+        "columns": {
+          "column": [
+            {
+              "name": "run_id",
+              "type": "string"
+            },
+            {
+              "name": "ran_at",
+              "type": "date"
+            },
+            {
+              "name": "delivered",
+              "type": "boolean"
+            },
+            {
+              "name": "pages",
+              "type": "number"
+            },
+            {
+              "name": "pages_read",
+              "type": "number"
+            },
+            {
+              "name": "events_new",
+              "type": "number"
+            },
+            {
+              "name": "problems",
+              "type": "number"
+            },
+            {
+              "name": "model_calls",
+              "type": "number"
+            },
+            {
+              "name": "prompt_tokens",
+              "type": "number"
+            },
+            {
+              "name": "completion_tokens",
+              "type": "number"
+            },
+            {
+              "name": "report",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {
+          "createIfNotExists": true
+        }
+      },
+      "id": "d0f52792-10fd-49b4-8f6f-fd02251c4c6a",
+      "name": "Create runs",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "newsletter_sources"
+        },
+        "matchType": "allConditions",
+        "filters": {},
+        "returnAll": true
+      },
+      "id": "870f961b-7b15-4ecd-8061-2eca9da28a9a",
+      "name": "Existing sources",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        900,
+        0
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Which rows to put into newsletter_sources. Called by hand: one example row\n// when the table is empty. Called through the webhook with\n// { \"sources\": [{ \"name\": \"...\", \"url\": \"...\" }] }: those that are not there yet.\nconst existing = new Set($input.all().map((item) => item.json.url).filter(Boolean));\nconst asked = $('Or call').isExecuted ? $('Or call').first().json.body?.sources : null;\nlet rows = [];\nif (Array.isArray(asked)) {\n  rows = asked.filter((row) => row && row.url && !existing.has(row.url)).map((row) => ({ name: String(row.name ?? row.url), url: String(row.url), enabled: row.enabled !== false }));\n} else if (existing.size === 0) {\n  rows = [{ name: 'Example (replace this row)', url: 'https://example.com/events', enabled: false }];\n}\nreturn rows.length ? rows.map((row) => ({ json: { add: true, ...row } })) : [{ json: { add: false } }];"
+      },
+      "id": "e1e2aa66-1f4e-4548-8a47-1d966e250281",
+      "name": "Rows to add",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "820d6fa2-b83d-4674-81b2-a8592e2bcec4",
+              "leftValue": "={{ $json.add }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "looseTypeValidation": true
+        }
+      },
+      "id": "2ea6c100-0dbc-4983-87f4-45d1bdc60848",
+      "name": "Any to add?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1340,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "newsletter_sources"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "name": "={{ $json.name }}",
+            "url": "={{ $json.url }}",
+            "enabled": "={{ $json.enabled }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "url",
+              "displayName": "url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "enabled",
+              "displayName": "enabled",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "9660b79e-50a3-4650-84c1-6e7984dacdd5",
+      "name": "Add source",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1560,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "54354237-cf16-4252-84c8-58245f51ee9f",
+      "name": "Done",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1780,
+        0
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Run once": {
+      "main": [
+        [
+          {
+            "node": "Create sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Or call": {
+      "main": [
+        [
+          {
+            "node": "Create sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create sources": {
+      "main": [
+        [
+          {
+            "node": "Create sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create sent": {
+      "main": [
+        [
+          {
+            "node": "Create runs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create runs": {
+      "main": [
+        [
+          {
+            "node": "Existing sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Existing sources": {
+      "main": [
+        [
+          {
+            "node": "Rows to add",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rows to add": {
+      "main": [
+        [
+          {
+            "node": "Any to add?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any to add?": {
+      "main": [
+        [
+          {
+            "node": "Add source",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add source": {
+      "main": [
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "eventsNewsSetup01"
+}

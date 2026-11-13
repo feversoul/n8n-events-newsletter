@@ -1,0 +1,910 @@
+{
+  "name": "Events Newsletter · 1 Weekly draft",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Events Newsletter · Weekly draft\nEvery Monday at 07:00 it reads the pages in the data table `newsletter_sources`, has a model copy the events out of each page, and mails you a **draft** of the newsletter to review.\n\n1. **Read pages**: one plain HTTP fetch per source. The HTML is turned into text inside n8n and cut at `MAX_PAGE_CHARS`. A page that fails, or that has no text because it is built by JavaScript, is listed in the draft and does not stop the run.\n2. **Extract**: the sub-workflow *2 Extract events* makes one model call per page and returns checked events.\n3. **Pick**: past events go, an event on two sites appears once, and events that an earlier issue had (`newsletter_sent`) are left out.\n4. **Render and deliver**: the HTML comes from the template in **Render newsletter**, not from the model.\n\nStart with **Settings**. Press **Execute workflow** for a draft right now.",
+        "width": 820,
+        "height": 380,
+        "color": 4
+      },
+      "id": "9bd8a8ce-74f7-4f82-82e5-dea06f30aa25",
+      "name": "About",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -560
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "weeksInterval": 1,
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 7,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "11b4baec-4045-44c0-8ad2-2ed94e9fa7df",
+      "name": "Every Monday 07:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "bdf0407d-1889-4e74-8f43-a80f7c4193df",
+      "name": "Run now",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "4df83de6-60cf-4e5d-8ddd-ec019617981c",
+      "name": "Called by another workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Change these, then save. The other nodes of this workflow read them from here.\nconst NEWSLETTER_NAME = 'This week in town';\nconst TO_EMAIL = 'you@example.com'; // where the draft goes for review\nconst FROM_EMAIL = 'newsletter@example.com';\nconst MAX_PAGE_CHARS = 12000; // text of one page that goes to the model. Longer pages are cut here: this is what keeps a run cheap.\nconst MIN_PAGE_CHARS = 200; // a page with less text than this is reported instead of sent to the model (usually a page built by JavaScript)\nconst LOOKAHEAD_DAYS = 14; // events later than this wait for a later issue\nconst KEEP_LINKS = true; // keep link addresses in the page text, so events can link to their own page\nconst LOCALE = 'en'; // language of the day names in the newsletter, e.g. 'de', 'fr', 'es'\nconst USER_AGENT = 'Mozilla/5.0 (compatible; events-newsletter; n8n)';\n\nreturn [\n  {\n    json: {\n      newsletter_name: NEWSLETTER_NAME,\n      to_email: TO_EMAIL,\n      from_email: FROM_EMAIL,\n      max_page_chars: MAX_PAGE_CHARS,\n      min_page_chars: MIN_PAGE_CHARS,\n      lookahead_days: LOOKAHEAD_DAYS,\n      keep_links: KEEP_LINKS,\n      locale: LOCALE,\n      user_agent: USER_AGENT,\n      today: $now.toFormat('yyyy-MM-dd'), // in the time zone of the workflow\n      run_id: String($execution.id),\n    },\n  },\n];"
+      },
+      "id": "0aaca5da-68ba-4bd1-8381-26d890ca21a0",
+      "name": "Settings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "newsletter_sources"
+        },
+        "matchType": "allConditions",
+        "filters": {},
+        "returnAll": true
+      },
+      "id": "b91f5ff2-d096-4c15-823a-6719fef0ed83",
+      "name": "Sources",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        460,
+        0
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// The rows of the data table newsletter_sources that are switched on.\nconst rows = $input\n  .all()\n  .map((item) => item.json)\n  .filter((row) => row.url && row.enabled !== false);\nif (rows.length === 0) {\n  throw new Error('No enabled rows in the data table newsletter_sources. Add the pages that list your events there.');\n}\nreturn rows.map((row) => ({ json: { source: String(row.name || row.url).trim(), url: String(row.url).trim() } }));"
+      },
+      "id": "d9bde8d0-0132-46d3-8a3a-361e6c538ae2",
+      "name": "Enabled sources",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "={{ $('Settings').first().json.user_agent }}"
+            },
+            {
+              "name": "Accept",
+              "value": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 20000
+        }
+      },
+      "id": "3bc584b4-7944-4092-89ee-21ab398be8b2",
+      "name": "Fetch page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Turns each fetched page into plain text and cuts it at MAX_PAGE_CHARS.\n// One answer per source, in the same order as they were asked.\nconst S = $('Settings').first().json;\nconst sources = $('Enabled sources').all();\n\nconst NAMED = {\n  amp: '&', lt: '<', gt: '>', quot: '\"', apos: \"'\", nbsp: ' ', ndash: '–', mdash: '—', hellip: '…', lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”',\n  laquo: '«', raquo: '»', bull: '•', middot: '·', deg: '°', euro: '€', pound: '£', copy: '©', reg: '®', trade: '™', szlig: 'ß',\n  agrave: 'à', aacute: 'á', acirc: 'â', atilde: 'ã', auml: 'ä', aring: 'å', aelig: 'æ', ccedil: 'ç', egrave: 'è', eacute: 'é', ecirc: 'ê', euml: 'ë',\n  igrave: 'ì', iacute: 'í', icirc: 'î', iuml: 'ï', ntilde: 'ñ', ograve: 'ò', oacute: 'ó', ocirc: 'ô', otilde: 'õ', ouml: 'ö', oslash: 'ø',\n  ugrave: 'ù', uacute: 'ú', ucirc: 'û', uuml: 'ü', yacute: 'ý',\n};\nconst decode = (text) =>\n  text.replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+[0-9]*);/gi, (whole, name) => {\n    if (name[0] === '#') {\n      const code = name[1].toLowerCase() === 'x' ? parseInt(name.slice(2), 16) : parseInt(name.slice(1), 10);\n      return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : ' ';\n    }\n    if (NAMED[name] !== undefined) return NAMED[name];\n    // &Eacute; and friends: the capital of a known letter\n    const lower = NAMED[name.toLowerCase()];\n    return lower !== undefined && name[0] !== name[0].toLowerCase() ? lower.toUpperCase() : whole;\n  });\n\n// The Code node has no URL class, so links are resolved by hand.\nconst absolute = (href, base) => {\n  if (/^https?:\\/\\//i.test(href)) return href;\n  const origin = /^(https?:)\\/\\/[^/?#]+/i.exec(base ?? '');\n  if (!origin || !href) return null;\n  if (href.startsWith('//')) return origin[1] + href;\n  if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return null; // mailto:, tel:, javascript:\n  if (href.startsWith('/')) return origin[0] + href;\n  const path = base.slice(origin[0].length).replace(/[?#].*$/, '') || '/';\n  if (href.startsWith('?') || href.startsWith('#')) return origin[0] + path + href;\n  const parts = path.slice(0, path.lastIndexOf('/') + 1).split('/');\n  for (const part of href.split('/')) {\n    if (part === '..') {\n      if (parts.length > 2) parts.splice(-2, 1);\n    } else if (part !== '.' && part !== '') parts.splice(-1, 1, part, '');\n  }\n  return origin[0] + parts.join('/').replace(/\\/$/, href.endsWith('/') ? '/' : '');\n};\n\nfunction toText(html, base) {\n  // Structured data (schema.org) that many event sites put in a script tag.\n  // It is worth keeping: it is often there even when the visible page is\n  // built by JavaScript.\n  const structured = [];\n  for (const match of html.matchAll(/<script\\b[^>]*type\\s*=\\s*[\"']?application\\/ld\\+json[\"']?[^>]*>([\\s\\S]*?)<\\/script>/gi)) {\n    if (!/Event/.test(match[1])) continue;\n    try {\n      structured.push(JSON.stringify(JSON.parse(match[1])));\n    } catch {\n      structured.push(match[1].replace(/\\s+/g, ' ').trim());\n    }\n  }\n\n  const title = /<title\\b[^>]*>([\\s\\S]*?)<\\/title>/i.exec(html)?.[1] ?? '';\n  let text = html\n    .replace(/<!--[\\s\\S]*?-->/g, ' ')\n    .replace(/<(script|style|svg|template|head|nav|footer|iframe|select)\\b[\\s\\S]*?<\\/\\1\\s*>/gi, ' ');\n  if (S.keep_links) {\n    text = text.replace(/<a\\b[^>]*?href\\s*=\\s*(\"([^\"]*)\"|'([^']*)'|([^\\s>]+))[^>]*>([\\s\\S]*?)<\\/a\\s*>/gi, (whole, q, a, b, c, inner) => {\n      const href = decode(a ?? b ?? c ?? '').trim();\n      const url = href && !href.startsWith('#') ? absolute(href, base) : null;\n      return url ? `${inner} [${url}]` : inner;\n    });\n  }\n  text = text\n    .replace(/<\\/?(td|th)\\b[^>]*>/gi, ' | ')\n    .replace(/<\\/?(p|div|br|li|ul|ol|tr|table|h[1-6]|section|article|header|main|aside|dl|dt|dd|blockquote|pre|hr|figure|figcaption|form)\\b[^>]*>/gi, '\\n')\n    .replace(/<[^>]*>/g, '');\n  const lines = [];\n  for (const raw of decode(`${title}\\n${text}`).split('\\n')) {\n    const line = raw\n      .replace(/\\s+/g, ' ')\n      .replace(/^(\\| ?)+|( ?\\|)+$/g, '')\n      .replace(/(\\| ){2,}/g, '| ')\n      .trim();\n    if (line && line !== lines[lines.length - 1]) lines.push(line);\n  }\n  let out = lines.join('\\n');\n  if (structured.length) out += `\\n\\nStructured data on the page:\\n${structured.join('\\n')}`;\n  return out;\n}\n\nreturn $input.all().map((item, index) => {\n  const { source, url } = sources[index].json;\n  const answer = item.json;\n  const body = typeof answer.body === 'string' ? answer.body : typeof answer.data === 'string' ? answer.data : '';\n  const type = String(answer.headers?.['content-type'] ?? '');\n  const page = { source, url, ok: false, problem: null, text: '', html_chars: body.length, text_chars: 0, cut: false };\n\n  if (answer.statusCode === undefined) {\n    const reason = answer.error?.message ?? answer.error ?? 'no answer';\n    page.problem = `could not be fetched (${String(typeof reason === 'string' ? reason : JSON.stringify(reason)).slice(0, 120)})`;\n    return { json: page };\n  }\n  if (answer.statusCode < 200 || answer.statusCode >= 300) {\n    page.problem = `answered HTTP ${answer.statusCode}`;\n    return { json: page };\n  }\n  if (type && !/html|xml|text\\/plain/i.test(type)) {\n    page.problem = `is not a web page (${type.split(';')[0]})`;\n    return { json: page };\n  }\n\n  const text = toText(body, url);\n  page.text_chars = text.length;\n  if (text.length < S.min_page_chars) {\n    page.problem = `has almost no text in its HTML (${text.length} characters). It is probably built by JavaScript in the browser, which a plain fetch cannot read`;\n    return { json: page };\n  }\n  page.ok = true;\n  page.text = text;\n  if (text.length > S.max_page_chars) {\n    // Cut at the end of a line when there is one close to the limit.\n    let cut = text.slice(0, S.max_page_chars);\n    const lineEnd = cut.lastIndexOf('\\n');\n    if (lineEnd > S.max_page_chars - 400) cut = cut.slice(0, lineEnd);\n    page.text = cut;\n    page.cut = true;\n  }\n  return { json: page };\n});"
+      },
+      "id": "f05ffa0a-a99b-4241-88cd-0acb7bc1bcf6",
+      "name": "Page to text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "dc3c3a6d-11dc-4eec-8013-8450d263802e",
+              "leftValue": "={{ $('Page to text').all().some((item) => item.json.ok) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "looseTypeValidation": true
+        }
+      },
+      "id": "fb1366f4-5d79-460d-8de2-171771043231",
+      "name": "Any page to read?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1340,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "eventsNewsExtrct1"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "460b3b24-58d9-4d5b-8bb8-fee88f90808b",
+      "name": "Extract events",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1560,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "newsletter_sent"
+        },
+        "matchType": "allConditions",
+        "filters": {},
+        "returnAll": true
+      },
+      "id": "92558f48-fbee-44fb-8848-8571588a1cd1",
+      "name": "Already sent",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1800,
+        0
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Decides what goes into this issue: no past events, each event once even\n// when several sites list it, nothing that an earlier issue already had,\n// nothing further away than LOOKAHEAD_DAYS.\nconst S = $('Settings').first().json;\nconst pages = $('Page to text').all().map((item) => item.json);\nconst extracted = ($('Extract events').isExecuted ? $('Extract events').all()[0]?.json : null) ?? { events: [], report: [], sources: [], model_calls: 0, prompt_tokens: 0, completion_tokens: 0 };\nconst sent = new Set($input.all().map((item) => item.json.event_key).filter(Boolean));\n\nconst plain = (text) =>\n  String(text)\n    .normalize('NFKD')\n    .replace(/[̀-ͯ]/g, '')\n    .toLowerCase()\n    .replace(/[^\\p{L}\\p{N}]+/gu, '');\nconst last = DateTime.fromISO(S.today).plus({ days: S.lookahead_days }).toFormat('yyyy-MM-dd');\n\nconst report = [];\nfor (const page of pages) {\n  if (!page.ok) report.push({ source: page.source, url: page.url, level: 'problem', text: `not read: the page ${page.problem}` });\n  else if (page.cut) {\n    report.push({\n      source: page.source,\n      url: page.url,\n      level: 'note',\n      text: `long page: only the first ${page.text.length.toLocaleString('en')} of ${page.text_chars.toLocaleString('en')} characters were read. Events further down are missing; point the source at a shorter page or raise MAX_PAGE_CHARS`,\n    });\n  }\n}\nreport.push(...extracted.report);\n\nconst counts = { found: extracted.events.length, past: 0, duplicates: 0, already_sent: 0, later: 0 };\nconst byKey = new Map();\nfor (const event of extracted.events) {\n  if (event.date < S.today) {\n    counts.past += 1;\n    continue;\n  }\n  const key = `${event.date}|${plain(event.title)}`;\n  const same = byKey.get(key);\n  if (same) {\n    // The same event on a second site: keep the first, fill its gaps.\n    counts.duplicates += 1;\n    for (const field of ['time', 'venue', 'summary']) same[field] = same[field] ?? event[field];\n    if (!same.also_on.includes(event.source) && event.source !== same.source) same.also_on.push(event.source);\n    continue;\n  }\n  byKey.set(key, { ...event, event_key: key, also_on: [] });\n}\n\nconst new_events = [];\nconst later = [];\nfor (const event of byKey.values()) {\n  if (sent.has(event.event_key)) counts.already_sent += 1;\n  else if (event.date > last) later.push(event);\n  else new_events.push(event);\n}\ncounts.later = later.length;\nconst order = (a, b) => `${a.date} ${a.time ?? '99'} ${a.title}`.localeCompare(`${b.date} ${b.time ?? '99'} ${b.title}`);\nnew_events.sort(order);\nlater.sort(order);\n\nreturn [\n  {\n    json: {\n      today: S.today,\n      new_events,\n      later,\n      counts,\n      report,\n      pages: pages.length,\n      pages_read: extracted.sources.filter((entry) => entry.read).length,\n      model_calls: extracted.model_calls,\n      prompt_tokens: extracted.prompt_tokens,\n      completion_tokens: extracted.completion_tokens,\n    },\n  },\n];"
+      },
+      "id": "5cff8f89-42ed-4907-8625-100a93fcd614",
+      "name": "Pick new events",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2020,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Builds the newsletter from a fixed template. No model is involved here, so\n// the layout is the same every week and costs nothing. Change the HTML below\n// to match your own newsletter.\nconst S = $('Settings').first().json;\nconst issue = $input.first().json;\n\nconst esc = (text) => String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;');\nconst day = (date) => DateTime.fromISO(date).setLocale(S.locale).toFormat('cccc d LLLL');\nconst FONT = \"font-family:Helvetica,Arial,sans-serif\";\n\n// --- the newsletter -----------------------------------------------------------\nconst days = [];\nfor (const event of issue.new_events) {\n  if (days[days.length - 1]?.date !== event.date) days.push({ date: event.date, events: [] });\n  days[days.length - 1].events.push(event);\n}\nconst eventHtml = (event) =>\n  [\n    '<tr><td style=\"padding:0 0 18px 0\">',\n    `<div style=\"${FONT};font-size:17px;line-height:24px;font-weight:bold;color:#111111\">${event.url ? `<a href=\"${esc(event.url)}\" style=\"color:#111111;text-decoration:underline\">${esc(event.title)}</a>` : esc(event.title)}</div>`,\n    `<div style=\"${FONT};font-size:14px;line-height:20px;color:#555555\">${esc([event.time, event.venue].filter(Boolean).join(' · ') || ' ')}</div>`,\n    event.summary ? `<div style=\"${FONT};font-size:15px;line-height:22px;color:#222222;padding-top:4px\">${esc(event.summary)}</div>` : '',\n    '</td></tr>',\n  ].join('');\nconst body = days.length\n  ? days\n      .map((group) =>\n        [\n          `<tr><td style=\"${FONT};font-size:13px;line-height:18px;letter-spacing:1px;text-transform:uppercase;color:#888888;border-top:1px solid #dddddd;padding:18px 0 10px 0\">${esc(day(group.date))}</td></tr>`,\n          ...group.events.map(eventHtml),\n        ].join(''),\n      )\n      .join('')\n  : `<tr><td style=\"${FONT};font-size:15px;line-height:22px;color:#222222;padding:18px 0\">No new events this week.</td></tr>`;\n\nconst newsletter = [\n  '<!doctype html>',\n  '<html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">',\n  `<title>${esc(S.newsletter_name)}</title></head>`,\n  '<body style=\"margin:0;padding:0;background:#f4f4f4\">',\n  '<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#f4f4f4\"><tr><td align=\"center\" style=\"padding:24px 12px\">',\n  '<table role=\"presentation\" width=\"600\" cellpadding=\"0\" cellspacing=\"0\" style=\"max-width:600px;width:100%;background:#ffffff\"><tr><td style=\"padding:28px 28px 12px 28px\">',\n  '<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\">',\n  `<tr><td style=\"${FONT};font-size:26px;line-height:32px;font-weight:bold;color:#111111;padding:0 0 18px 0\">${esc(S.newsletter_name)}</td></tr>`,\n  body,\n  '</table>',\n  '</td></tr></table>',\n  '</td></tr></table>',\n  '</body></html>',\n].join('\\n');\n\n// --- the notes for you, on top of the draft mail --------------------------------\nconst problems = issue.report.filter((line) => line.level === 'problem');\nconst notes = issue.report.filter((line) => line.level !== 'problem');\nconst c = issue.counts;\nconst line = (entry) => `<li><b>${esc(entry.source)}</b>: ${esc(entry.text)} (<a href=\"${esc(entry.url)}\">${esc(entry.url)}</a>)</li>`;\nconst review = [\n  `<div style=\"${FONT};font-size:14px;line-height:21px;color:#111111;background:#fff8e1;border:1px solid #e0c36a;padding:16px 20px;margin:0 0 24px 0\">`,\n  '<p style=\"margin:0 0 8px 0\"><b>DRAFT for review. Nothing was sent to subscribers.</b> The newsletter without this box is attached as an HTML file.</p>',\n  `<p style=\"margin:0 0 8px 0\">${issue.new_events.length} new ${issue.new_events.length === 1 ? 'event' : 'events'} from ${issue.pages_read} of ${issue.pages} pages. Left out: ${c.duplicates} listed twice, ${c.already_sent} already in an earlier issue, ${c.past} in the past, ${c.later} more than ${S.lookahead_days} days away.</p>`,\n  problems.length ? `<p style=\"margin:0 0 4px 0\"><b>To check (${problems.length}):</b></p><ul style=\"margin:0 0 8px 0;padding-left:20px\">${problems.map(line).join('')}</ul>` : '<p style=\"margin:0 0 8px 0\">Every page was read.</p>',\n  notes.length ? `<p style=\"margin:0 0 4px 0\">Notes:</p><ul style=\"margin:0 0 8px 0;padding-left:20px\">${notes.map(line).join('')}</ul>` : '',\n  `<p style=\"margin:0;color:#555555\">Model use this run: ${issue.model_calls} ${issue.model_calls === 1 ? 'call' : 'calls'}, ${issue.prompt_tokens.toLocaleString('en')} input tokens, ${issue.completion_tokens.toLocaleString('en')} output tokens.</p>`,\n  '</div>',\n].join('\\n');\n\nconst subject = `[DRAFT] ${S.newsletter_name}, ${issue.today}: ${issue.new_events.length} new${problems.length ? `, ${problems.length} to check` : ''}`;\nconst fileName = `newsletter-${issue.today}.html`;\n\nreturn [\n  {\n    json: {\n      ...issue,\n      run_id: S.run_id,\n      to: S.to_email,\n      from: S.from_email,\n      subject,\n      file_name: fileName,\n      newsletter_html: newsletter,\n      draft_html: newsletter.replace(/(<body[^>]*>)/, `$1\\n${review}`),\n    },\n    binary: {\n      newsletter: { data: Buffer.from(newsletter, 'utf8').toString('base64'), mimeType: 'text/html', fileName, fileExtension: 'html' },\n    },\n  },\n];"
+      },
+      "id": "8d7b879c-852c-403f-8fff-68e43b49b130",
+      "name": "Render newsletter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $json.from }}",
+        "toEmail": "={{ $json.to }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "html",
+        "html": "={{ $json.draft_html }}",
+        "options": {
+          "appendAttribution": false,
+          "attachments": "newsletter"
+        }
+      },
+      "id": "0acfba86-4582-4cf4-8255-fd4247ff12ac",
+      "name": "Email the draft",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2480,
+        0
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "eventsNewsSmtp",
+          "name": "Events Newsletter SMTP"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8d45c3a7-6a06-4f34-8fee-05798de18ba7",
+              "leftValue": "={{ $('Render newsletter').first().json.new_events.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "looseTypeValidation": true
+        }
+      },
+      "id": "09c4cd41-7bcd-47cc-8d18-fd954d74ea73",
+      "name": "Anything to remember?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2720,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One row per event that went into the draft, so later issues leave it out.\nconst issue = $('Render newsletter').first().json;\nreturn issue.new_events.map((event) => ({\n  json: { event_key: event.event_key, title: event.title, event_date: event.date, source: event.source, run_id: issue.run_id, sent_at: $now.toISO() },\n}));"
+      },
+      "id": "9ca27ea0-447e-4750-8569-b6672a36539b",
+      "name": "Sent keys",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2940,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "newsletter_sent"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "event_key": "={{ $json.event_key }}",
+            "title": "={{ $json.title }}",
+            "event_date": "={{ $json.event_date }}",
+            "source": "={{ $json.source }}",
+            "run_id": "={{ $json.run_id }}",
+            "sent_at": "={{ $json.sent_at }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "event_key",
+              "displayName": "event_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "event_date",
+              "displayName": "event_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "run_id",
+              "displayName": "run_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sent_at",
+              "displayName": "sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "2761e434-7864-4102-8ba7-7981f182df35",
+      "name": "Remember events",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3160,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The draft could not be delivered. Nothing is remembered, so the same\n// events are in the next run.\nconst error = $input.first().json.error;\nreturn [{ json: { delivery_failed: true, reason: String(error?.message ?? error ?? 'unknown error').slice(0, 300) } }];"
+      },
+      "id": "5d610c6e-ec5e-4854-8822-2a6ecf74e076",
+      "name": "Delivery failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2720,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// What this run did, for the data table newsletter_runs and for whoever called.\nconst issue = $('Render newsletter').first().json;\nconst failed = $input.first().json.delivery_failed === true;\nreturn [\n  {\n    json: {\n      run_id: issue.run_id,\n      ran_at: $now.toISO(),\n      delivered: !failed,\n      delivery_error: failed ? $input.first().json.reason : null,\n      subject: issue.subject,\n      pages: issue.pages,\n      pages_read: issue.pages_read,\n      events_found: issue.counts.found,\n      events_new: issue.new_events.length,\n      titles: issue.new_events.map((event) => event.title),\n      duplicates: issue.counts.duplicates,\n      already_sent: issue.counts.already_sent,\n      past: issue.counts.past,\n      later: issue.counts.later,\n      problems: issue.report.filter((entry) => entry.level === 'problem').length,\n      report: issue.report,\n      model_calls: issue.model_calls,\n      prompt_tokens: issue.prompt_tokens,\n      completion_tokens: issue.completion_tokens,\n    },\n  },\n];"
+      },
+      "id": "4176474f-6de0-4463-82b0-3ef439c6b453",
+      "name": "Run summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "newsletter_runs"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "run_id": "={{ $json.run_id }}",
+            "ran_at": "={{ $json.ran_at }}",
+            "delivered": "={{ $json.delivered }}",
+            "pages": "={{ $json.pages }}",
+            "pages_read": "={{ $json.pages_read }}",
+            "events_new": "={{ $json.events_new }}",
+            "problems": "={{ $json.problems }}",
+            "model_calls": "={{ $json.model_calls }}",
+            "prompt_tokens": "={{ $json.prompt_tokens }}",
+            "completion_tokens": "={{ $json.completion_tokens }}",
+            "report": "={{ $json.report.map((entry) => entry.source + ': ' + entry.text).join('\\n') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "run_id",
+              "displayName": "run_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ran_at",
+              "displayName": "ran_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "delivered",
+              "displayName": "delivered",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "pages",
+              "displayName": "pages",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "pages_read",
+              "displayName": "pages_read",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "events_new",
+              "displayName": "events_new",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "problems",
+              "displayName": "problems",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "model_calls",
+              "displayName": "model_calls",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "prompt_tokens",
+              "displayName": "prompt_tokens",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "completion_tokens",
+              "displayName": "completion_tokens",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "report",
+              "displayName": "report",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "197a0dd0-badb-4d5e-8a1d-79ce8c483866",
+      "name": "Log run",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3620,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { ...$('Run summary').first().json, logged: $input.first().json.id !== undefined } }];"
+      },
+      "id": "a77c44c2-07a7-4b68-85c2-ff192f3f6327",
+      "name": "Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3840,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### What a plain fetch can read\nOnly what is in the HTML the server sends. A page that fills itself in with JavaScript (many ticket shops, Instagram, Facebook) arrives almost empty: it is reported in the draft, not guessed. For such a source, look for an RSS feed, an iCal link or an API of that site, or use a scraping service, and feed its text into **Extract events** as items `{ source, url, text }`.",
+        "width": 560,
+        "height": 170,
+        "color": 5
+      },
+      "id": "adff12ad-d152-4e69-8e04-d93f2614cb58",
+      "name": "Pages note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        860,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Swap the delivery here\n**Email the draft** sends the draft to you over SMTP. To create the draft in your email tool instead, replace this one node with an HTTP Request (or the tool's own n8n node) that creates a draft campaign. The item it gets has `subject`, `newsletter_html` (the clean newsletter), `draft_html` (with the review box) and the file `newsletter`.\n\nKeep both outputs connected as they are: events are only remembered after a delivery that worked, so a failed delivery is tried again with the same events on the next run.",
+        "width": 620,
+        "height": 220,
+        "color": 5
+      },
+      "id": "f6579733-eb1a-40c8-8683-e0142ff8f0f3",
+      "name": "Deliver note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2400,
+        320
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Every Monday 07:00": {
+      "main": [
+        [
+          {
+            "node": "Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run now": {
+      "main": [
+        [
+          {
+            "node": "Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Called by another workflow": {
+      "main": [
+        [
+          {
+            "node": "Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Settings": {
+      "main": [
+        [
+          {
+            "node": "Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sources": {
+      "main": [
+        [
+          {
+            "node": "Enabled sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enabled sources": {
+      "main": [
+        [
+          {
+            "node": "Fetch page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch page": {
+      "main": [
+        [
+          {
+            "node": "Page to text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Page to text": {
+      "main": [
+        [
+          {
+            "node": "Any page to read?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any page to read?": {
+      "main": [
+        [
+          {
+            "node": "Extract events",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Already sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract events": {
+      "main": [
+        [
+          {
+            "node": "Already sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already sent": {
+      "main": [
+        [
+          {
+            "node": "Pick new events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick new events": {
+      "main": [
+        [
+          {
+            "node": "Render newsletter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render newsletter": {
+      "main": [
+        [
+          {
+            "node": "Email the draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email the draft": {
+      "main": [
+        [
+          {
+            "node": "Anything to remember?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Delivery failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything to remember?": {
+      "main": [
+        [
+          {
+            "node": "Sent keys",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Run summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sent keys": {
+      "main": [
+        [
+          {
+            "node": "Remember events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remember events": {
+      "main": [
+        [
+          {
+            "node": "Run summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delivery failed": {
+      "main": [
+        [
+          {
+            "node": "Run summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run summary": {
+      "main": [
+        [
+          {
+            "node": "Log run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log run": {
+      "main": [
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "eventsNewsWeekly1"
+}

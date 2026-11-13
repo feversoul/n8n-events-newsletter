@@ -1,0 +1,370 @@
+{
+  "name": "Events Newsletter · 2 Extract events",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Events Newsletter · Extract events\nCalled by *1 Weekly draft*. Takes items `{ source, url, text }` and makes **one model call per item** to copy the events out of the text as JSON. Returns one item with the checked events, a report of what went wrong, and the tokens the API says it used.\n\n- The model is asked for JSON only. Its answer is still checked: code fences and text around the JSON are removed, and every event needs a title and a real date.\n- A page whose answer failed (rate limit, unusable JSON, API down) is asked **once** more after `RETRY_WAIT_SECONDS`. If that fails too, the page is reported and the rest goes on.\n- An event whose title is not in the page text is left out and reported.\n\nStart with **Model settings**. Other text sources (for example the posts a scraping API returns) can call this workflow with the same item shape.",
+        "width": 820,
+        "height": 340,
+        "color": 4
+      },
+      "id": "ea0227a8-e632-4293-804f-fbeb32573525",
+      "name": "About",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -520
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "e0437bf0-450a-4e12-850d-b65cea795600",
+      "name": "Pages in",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Change these, then save. Any API that speaks the OpenAI \"chat completions\"\n// format works: OpenAI, a provider with a free tier, or a model on your own\n// machine (Ollama: http://localhost:11434/v1). The key is in the credential\n// \"Events Newsletter Model\".\nconst MODEL_BASE_URL = 'https://api.openai.com/v1'; // without /chat/completions\nconst MODEL = 'gpt-4o-mini'; // a small model is enough: it only copies events out of text\nconst JSON_MODE = true; // asks the API for JSON only. Set to false if your server rejects \"response_format\".\nconst RETRY_WAIT_SECONDS = 20; // a page whose answer failed (rate limit, bad JSON) is asked once more after this pause\nconst CHECK_TITLE_ON_PAGE = true; // leave out an event whose title is not in the page text (a guard against invented events)\n\nreturn [\n  {\n    json: {\n      model_base_url: MODEL_BASE_URL.replace(/\\/+$/, ''),\n      model: MODEL,\n      json_mode: JSON_MODE,\n      retry_wait_seconds: RETRY_WAIT_SECONDS,\n      check_title_on_page: CHECK_TITLE_ON_PAGE,\n      today: $now.toFormat('yyyy-MM-dd'),\n    },\n  },\n];"
+      },
+      "id": "fe7df34f-401c-4c2c-8850-8173e3f8c9bb",
+      "name": "Model settings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One request per page. What comes in: items { source, url, text }.\n// Anything that can produce that shape can use this workflow, not only web pages.\nconst M = $('Model settings').first().json;\n\nconst system = [\n  'You copy events out of the text of a web page. You answer with JSON only, in this shape:',\n  '{\"events\":[{\"title\":\"...\",\"date\":\"YYYY-MM-DD\",\"time\":\"HH:MM\",\"venue\":\"...\",\"url\":\"...\",\"summary\":\"...\"}]}',\n  'Rules:',\n  '- Only events that are on the page. Never add or guess an event.',\n  '- title: as written on the page.',\n  '- date: the day the event starts. When the page gives no year, use the next such day on or after today.',\n  '- time: start time in 24-hour HH:MM, or null when the page gives none.',\n  '- venue: the place as written, or null.',\n  '- url: the address of the event\\'s own page when the text gives one in [brackets], or null.',\n  '- summary: one plain sentence of at most 160 characters taken from the page, or null.',\n  '- An event without a date: date is null.',\n  '- No events on the page: {\"events\":[]}',\n].join('\\n');\n\nreturn $('Pages in')\n  .all()\n  .filter((item) => item.json.ok !== false && typeof item.json.text === 'string' && item.json.text.trim() !== '')\n  .map((item) => {\n    const { source, url, text } = item.json;\n    return {\n      json: {\n        source: String(source ?? url ?? 'page'),\n        url: String(url ?? ''),\n        text,\n        request: {\n          model: M.model,\n          messages: [\n            { role: 'system', content: system },\n            { role: 'user', content: `Source: ${source}\\nPage address: ${url}\\nToday: ${M.today}\\n\\nPage text:\\n${text}` },\n          ],\n          ...(M.json_mode ? { response_format: { type: 'json_object' } } : {}),\n        },\n      },\n    };\n  });"
+      },
+      "id": "9bdbdee6-9c00-4912-82b9-68bfa662e4f2",
+      "name": "Build prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Model settings').first().json.model_base_url }}/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.request) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 120000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "e7076f0e-44d4-401d-8317-a852a6ba997c",
+      "name": "Call model",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        0
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "eventsNewsModel",
+          "name": "Events Newsletter Model"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// One answer per page, in the same order as they were asked. An answer that\n// is not usable JSON is repaired when that is safe (code fences, text around\n// the JSON, a comma before a closing bracket). Otherwise the page is marked\n// for one more try.\nconst pages = $('Build prompt').all();\n\nfunction events(content) {\n  const attempts = [];\n  const text = String(content ?? '').trim();\n  attempts.push(text);\n  const fenced = /```(?:json)?\\s*([\\s\\S]*?)```/i.exec(text)?.[1];\n  if (fenced) attempts.push(fenced.trim());\n  const from = (fenced ?? text).search(/[{[]/);\n  const to = Math.max((fenced ?? text).lastIndexOf('}'), (fenced ?? text).lastIndexOf(']'));\n  if (from !== -1 && to > from) {\n    const inner = (fenced ?? text).slice(from, to + 1);\n    attempts.push(inner, inner.replace(/,\\s*([}\\]])/g, '$1'));\n  }\n  for (const attempt of attempts) {\n    try {\n      const value = JSON.parse(attempt);\n      if (Array.isArray(value)) return value;\n      if (value && Array.isArray(value.events)) return value.events;\n    } catch {\n      /* try the next one */\n    }\n  }\n  return null;\n}\n\nreturn $input.all().map((item, index) => {\n  const page = pages[index].json;\n  const status = item.json.statusCode;\n  let body = item.json.body;\n  if (typeof body === 'string') {\n    try {\n      body = JSON.parse(body);\n    } catch {\n      body = null;\n    }\n  }\n  const usage = body?.usage ?? {};\n  const out = {\n    source: page.source,\n    url: page.url,\n    page_index: page.page_index ?? index,\n    events: null,\n    failure: null,\n    prompt_tokens: Number(usage.prompt_tokens) || 0,\n    completion_tokens: Number(usage.completion_tokens) || 0,\n  };\n  if (status === 200) {\n    out.events = events(body?.choices?.[0]?.message?.content);\n    if (out.events === null) out.failure = 'the model answer was not usable JSON';\n  } else if (status === 429) {\n    out.failure = 'the model API said \"too many requests\" (HTTP 429)';\n  } else if (status === undefined) {\n    out.failure = `the model API could not be reached (${String(item.json.error?.message ?? item.json.error ?? 'no answer').slice(0, 120)})`;\n  } else {\n    out.failure = `the model API answered HTTP ${status}${body?.error?.message ? `: ${String(body.error.message).slice(0, 120)}` : ''}`;\n  }\n  return { json: out };\n});"
+      },
+      "id": "ba5d89b8-43db-4d08-8467-c029047f5356",
+      "name": "Read answers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "32c10ab2-86d5-4742-8fc2-9639a76f9efa",
+              "leftValue": "={{ $('Read answers').all().some((item) => item.json.events === null) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "looseTypeValidation": true
+        }
+      },
+      "id": "d856f9c3-6a5e-4c6d-8c20-7c7b37409dc8",
+      "name": "Any to retry?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1100,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "amount": "={{ $('Model settings').first().json.retry_wait_seconds }}",
+        "unit": "seconds"
+      },
+      "id": "e27dcc6b-0eb2-4863-8dd6-ce046f6f08bd",
+      "name": "Wait before retry",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1320,
+        -140
+      ],
+      "webhookId": "8ea06395-1620-4e7b-82d4-3d5a9bb42849"
+    },
+    {
+      "parameters": {
+        "jsCode": "// The pages whose first answer failed, with the same request.\nconst pages = $('Build prompt').all();\nreturn $('Read answers')\n  .all()\n  .filter((item) => item.json.events === null)\n  .map((item) => ({ json: { ...pages[item.json.page_index].json, page_index: item.json.page_index } }));"
+      },
+      "id": "70d63b9b-330a-42df-8d16-f85f037a01d0",
+      "name": "Retry list",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Model settings').first().json.model_base_url }}/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.request) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 120000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "ffbef582-4bab-4380-86ce-f9761edfbc42",
+      "name": "Call model again",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        -140
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "eventsNewsModel",
+          "name": "Events Newsletter Model"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// One answer per page, in the same order as they were asked. An answer that\n// is not usable JSON is repaired when that is safe (code fences, text around\n// the JSON, a comma before a closing bracket). Otherwise the page is marked\n// for one more try.\nconst pages = $('Retry list').all();\n\nfunction events(content) {\n  const attempts = [];\n  const text = String(content ?? '').trim();\n  attempts.push(text);\n  const fenced = /```(?:json)?\\s*([\\s\\S]*?)```/i.exec(text)?.[1];\n  if (fenced) attempts.push(fenced.trim());\n  const from = (fenced ?? text).search(/[{[]/);\n  const to = Math.max((fenced ?? text).lastIndexOf('}'), (fenced ?? text).lastIndexOf(']'));\n  if (from !== -1 && to > from) {\n    const inner = (fenced ?? text).slice(from, to + 1);\n    attempts.push(inner, inner.replace(/,\\s*([}\\]])/g, '$1'));\n  }\n  for (const attempt of attempts) {\n    try {\n      const value = JSON.parse(attempt);\n      if (Array.isArray(value)) return value;\n      if (value && Array.isArray(value.events)) return value.events;\n    } catch {\n      /* try the next one */\n    }\n  }\n  return null;\n}\n\nreturn $input.all().map((item, index) => {\n  const page = pages[index].json;\n  const status = item.json.statusCode;\n  let body = item.json.body;\n  if (typeof body === 'string') {\n    try {\n      body = JSON.parse(body);\n    } catch {\n      body = null;\n    }\n  }\n  const usage = body?.usage ?? {};\n  const out = {\n    source: page.source,\n    url: page.url,\n    page_index: page.page_index ?? index,\n    events: null,\n    failure: null,\n    prompt_tokens: Number(usage.prompt_tokens) || 0,\n    completion_tokens: Number(usage.completion_tokens) || 0,\n  };\n  if (status === 200) {\n    out.events = events(body?.choices?.[0]?.message?.content);\n    if (out.events === null) out.failure = 'the model answer was not usable JSON';\n  } else if (status === 429) {\n    out.failure = 'the model API said \"too many requests\" (HTTP 429)';\n  } else if (status === undefined) {\n    out.failure = `the model API could not be reached (${String(item.json.error?.message ?? item.json.error ?? 'no answer').slice(0, 120)})`;\n  } else {\n    out.failure = `the model API answered HTTP ${status}${body?.error?.message ? `: ${String(body.error.message).slice(0, 120)}` : ''}`;\n  }\n  return { json: out };\n});"
+      },
+      "id": "e6b7c626-a520-40c9-8d67-8a811a2aaa0c",
+      "name": "Read retry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Puts first tries and retries together, checks every event and returns ONE\n// item: { events, report, sources, model_calls, prompt_tokens, completion_tokens }.\nconst M = $('Model settings').first().json;\nconst pages = $('Build prompt').all().map((item) => item.json);\nconst first = $('Read answers').all().map((item) => item.json);\nconst second = $('Read retry').isExecuted ? $('Read retry').all().map((item) => item.json) : [];\n\nconst plain = (text) =>\n  String(text)\n    .normalize('NFKD')\n    .replace(/[̀-ͯ]/g, '')\n    .toLowerCase()\n    .replace(/[^\\p{L}\\p{N}]+/gu, '');\nconst clean = (value, max) => (typeof value === 'string' && value.trim() ? value.replace(/\\s+/g, ' ').trim().slice(0, max) : null);\n\n// The Code node has no URL class, so links are resolved by hand.\nconst absolute = (href, base) => {\n  if (/^https?:\\/\\//i.test(href)) return href;\n  const origin = /^(https?:)\\/\\/[^/?#]+/i.exec(base ?? '');\n  if (!origin || !href) return null;\n  if (href.startsWith('//')) return origin[1] + href;\n  if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return null; // mailto:, tel:, javascript:\n  if (href.startsWith('/')) return origin[0] + href;\n  const path = base.slice(origin[0].length).replace(/[?#].*$/, '') || '/';\n  if (href.startsWith('?') || href.startsWith('#')) return origin[0] + path + href;\n  const parts = path.slice(0, path.lastIndexOf('/') + 1).split('/');\n  for (const part of href.split('/')) {\n    if (part === '..') {\n      if (parts.length > 2) parts.splice(-2, 1);\n    } else if (part !== '.' && part !== '') parts.splice(-1, 1, part, '');\n  }\n  return origin[0] + parts.join('/').replace(/\\/$/, href.endsWith('/') ? '/' : '');\n};\n\nconst events = [];\nconst report = [];\nconst sources = [];\nlet model_calls = 0;\nlet prompt_tokens = 0;\nlet completion_tokens = 0;\n\nfirst.forEach((answer, index) => {\n  const page = pages[index];\n  const retry = second.find((entry) => entry.page_index === index);\n  for (const call of [answer, retry]) {\n    if (!call) continue;\n    model_calls += 1;\n    prompt_tokens += call.prompt_tokens;\n    completion_tokens += call.completion_tokens;\n  }\n  const final = answer.events !== null ? answer : retry ?? answer;\n  if (final.events === null) {\n    report.push({ source: page.source, url: page.url, level: 'problem', text: `not read: ${final.failure}${retry ? ', also on the second try' : ''}` });\n    sources.push({ source: page.source, url: page.url, read: false, events: 0 });\n    return;\n  }\n\n  const pageText = plain(page.text);\n  let incomplete = 0;\n  let kept = 0;\n  for (const raw of final.events) {\n    const title = clean(raw?.title ?? raw?.name, 200);\n    let date = clean(raw?.date ?? raw?.start_date ?? raw?.startDate, 40);\n    let time = clean(raw?.time ?? raw?.start_time, 20);\n    // \"2026-11-21T19:30:00\" is a date and a time\n    const stamp = date ? /^(\\d{4}-\\d{2}-\\d{2})[T ](\\d{1,2}:\\d{2})/.exec(date) : null;\n    if (stamp) {\n      date = stamp[1];\n      time = time ?? stamp[2];\n    }\n    if (!title || !date || !/^\\d{4}-\\d{2}-\\d{2}$/.test(date) || !DateTime.fromISO(date).isValid) {\n      incomplete += 1;\n      continue;\n    }\n    if (M.check_title_on_page && !pageText.includes(plain(title))) {\n      report.push({ source: page.source, url: page.url, level: 'problem', text: `\"${title}\" left out: the model named it but the title is not in the page text` });\n      continue;\n    }\n    const clock = time ? /^(\\d{1,2}):(\\d{2})/.exec(time) : null;\n    const link = typeof raw?.url === 'string' && raw.url.trim() ? absolute(raw.url.trim(), page.url) : null;\n    events.push({\n      title,\n      date,\n      time: clock && Number(clock[1]) < 24 && Number(clock[2]) < 60 ? `${clock[1].padStart(2, '0')}:${clock[2]}` : null,\n      venue: clean(raw?.venue ?? raw?.location, 160),\n      url: link ?? (page.url || null),\n      summary: clean(raw?.summary ?? raw?.description, 240),\n      source: page.source,\n      source_url: page.url,\n    });\n    kept += 1;\n  }\n  if (incomplete) report.push({ source: page.source, url: page.url, level: 'problem', text: `${incomplete} ${incomplete === 1 ? 'entry' : 'entries'} left out: no title or no usable date` });\n  if (final.events.length === 0) report.push({ source: page.source, url: page.url, level: 'note', text: 'no events found on the page' });\n  sources.push({ source: page.source, url: page.url, read: true, events: kept });\n});\n\nreturn [{ json: { events, report, sources, model_calls, prompt_tokens, completion_tokens } }];"
+      },
+      "id": "63ce5724-2165-44fe-8e95-e2b74a030df2",
+      "name": "Collect",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2220,
+        0
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Pages in": {
+      "main": [
+        [
+          {
+            "node": "Model settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Model settings": {
+      "main": [
+        [
+          {
+            "node": "Build prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build prompt": {
+      "main": [
+        [
+          {
+            "node": "Call model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call model": {
+      "main": [
+        [
+          {
+            "node": "Read answers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read answers": {
+      "main": [
+        [
+          {
+            "node": "Any to retry?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any to retry?": {
+      "main": [
+        [
+          {
+            "node": "Wait before retry",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Collect",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before retry": {
+      "main": [
+        [
+          {
+            "node": "Retry list",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry list": {
+      "main": [
+        [
+          {
+            "node": "Call model again",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call model again": {
+      "main": [
+        [
+          {
+            "node": "Read retry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read retry": {
+      "main": [
+        [
+          {
+            "node": "Collect",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "eventsNewsExtrct1"
+}

@@ -1,0 +1,22 @@
+# Overlay for the end-to-end tests: n8n plus one stand-in that plays the event
+# websites, the model API and the mail server. Paths are relative to the
+# repository root.
+#   npm run test:e2e
+services:
+  standin:
+    image: node:22-alpine
+    command: ["node", "/app/stand-in.mjs"]
+    volumes:
+      - ./test/stand-in.mjs:/app/stand-in.mjs:ro
+    ports:
+      - "58094:8080"
+    mem_limit: 256m
+
+  n8n:
+    restart: "no"
+    environment:
+      SMTP_DISABLE_STARTTLS: ${SMTP_DISABLE_STARTTLS:-}
+    depends_on:
+      standin:
+        condition: service_started
+    mem_limit: 1500m

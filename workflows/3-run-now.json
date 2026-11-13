@@ -1,0 +1,121 @@
+{
+  "name": "Events Newsletter · 3 Run now (webhook)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Events Newsletter · Run now\nOptional. `POST /webhook/newsletter/run` with the header of the credential **Events Newsletter Key** runs *1 Weekly draft* right away and answers with what it did: events, problems, tokens. The tests of this repository use it.",
+        "width": 560,
+        "height": 160,
+        "color": 4
+      },
+      "id": "c0375823-b0ba-4036-8e56-cd73ca84696d",
+      "name": "About",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -220
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "newsletter/run",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a88497fb-1e53-473a-8a3b-1742ef07364b",
+      "name": "Run requested",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "9112de87-4e7d-454b-87e0-b7356a9a2436",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "eventsNewsKey",
+          "name": "Events Newsletter Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "eventsNewsWeekly1"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "9c4931ad-1396-4f4f-82e4-a36e68874ae7",
+      "name": "Weekly draft",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "08471cd6-f9e7-4a7c-8855-07569a2107cf",
+      "name": "Answer",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        0
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Run requested": {
+      "main": [
+        [
+          {
+            "node": "Weekly draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weekly draft": {
+      "main": [
+        [
+          {
+            "node": "Answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "eventsNewsRunNow1"
+}

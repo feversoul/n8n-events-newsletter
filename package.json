@@ -1,0 +1,14 @@
+{
+  "name": "n8n-events-newsletter",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Weekly events newsletter for n8n: read event pages, one small model call per page, HTML from a template, delivered as a draft. Tested on real n8n",
+  "license": "MIT",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test:e2e": "node scripts/e2e.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
