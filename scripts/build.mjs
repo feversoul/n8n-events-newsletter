@@ -171,11 +171,11 @@ const setup = workflow(IDS.setup, 'Events Newsletter · 0 Setup', (w) => {
       '',
       `Then open **Data tables → ${SOURCES}** and add one row per page that lists events: a name, the address, and \`enabled\` ticked.`,
       '',
-      'The webhook does the same for scripted installs and can take the sources in its body. You can delete it.',
+      'The webhook does the same for scripted installs and can take the sources in its body. If you delete it, delete **Done** too: that node only answers the webhook, and without the webhook a run ends on it with "No Webhook node found".',
     ],
-    [-40, -320],
+    [-40, -380],
     640,
-    260,
+    320,
   );
   w.node('Run once', 'manualTrigger', 1, [0, 0], {});
   w.hook('Or call', 'setup', [0, 180]);

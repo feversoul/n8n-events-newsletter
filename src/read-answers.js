@@ -53,7 +53,8 @@ return $input.all().map((item, index) => {
     out.events = events(body?.choices?.[0]?.message?.content);
     if (out.events === null) out.failure = 'the model answer was not usable JSON';
   } else if (status === 429) {
-    out.failure = 'the model API said "too many requests" (HTTP 429)';
+    // Some providers also use 429 for a used-up quota, so pass their own words on.
+    out.failure = `the model API said "too many requests" (HTTP 429)${body?.error?.message ? `: ${String(body.error.message).slice(0, 120)}` : ''}`;
   } else if (status === undefined) {
     out.failure = `the model API could not be reached (${String(item.json.error?.message ?? item.json.error ?? 'no answer').slice(0, 120)})`;
   } else {

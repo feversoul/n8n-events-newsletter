@@ -3,9 +3,9 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Events Newsletter · Setup\nRun this once: press **Execute workflow**. It creates three data tables: `newsletter_sources` (the pages to read), `newsletter_sent` (events that were already in an issue) and `newsletter_runs` (one row per run, with the tokens it used).\n\nThen open **Data tables → newsletter_sources** and add one row per page that lists events: a name, the address, and `enabled` ticked.\n\nThe webhook does the same for scripted installs and can take the sources in its body. You can delete it.",
+        "content": "## Events Newsletter · Setup\nRun this once: press **Execute workflow**. It creates three data tables: `newsletter_sources` (the pages to read), `newsletter_sent` (events that were already in an issue) and `newsletter_runs` (one row per run, with the tokens it used).\n\nThen open **Data tables → newsletter_sources** and add one row per page that lists events: a name, the address, and `enabled` ticked.\n\nThe webhook does the same for scripted installs and can take the sources in its body. If you delete it, delete **Done** too: that node only answers the webhook, and without the webhook a run ends on it with \"No Webhook node found\".",
         "width": 640,
-        "height": 260,
+        "height": 320,
         "color": 4
       },
       "id": "0d409387-1685-4bd0-8ed1-1a313277963f",
@@ -14,7 +14,7 @@
       "typeVersion": 1,
       "position": [
         -40,
-        -320
+        -380
       ]
     },
     {

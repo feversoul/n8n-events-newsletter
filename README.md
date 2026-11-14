@@ -78,17 +78,17 @@ Not built and not tested here. The posts need the Scrape Creators API you alread
 
 ## Add it to your n8n
 
-For an n8n you already run (2.x). Nothing in it needs more than Data Tables, so it should also work on n8n Cloud.
+For an n8n you already run (2.x). Nothing in it needs more than Data Tables, so it should also work on n8n Cloud, where it was not run.
 
 1. Create two credentials with exactly these names:
    - **OpenAI** credential `Events Newsletter Model` with your API key. For a local model that needs no key, type any text.
    - **SMTP** credential `Events Newsletter SMTP` for the mail server that sends you the draft.
 2. Import the four files in `workflows/` (**Import from file**).
-3. Open **0 Setup**. Its webhook is for scripted installs and wants a **Header Auth** credential named `Events Newsletter Key` (header `X-Newsletter-Key`): create it or delete that webhook node. Press **Execute workflow**.
+3. Open **0 Setup**. Its webhook is for scripted installs and wants a **Header Auth** credential named `Events Newsletter Key` (header `X-Newsletter-Key`): create it, or delete that webhook node together with the **Done** node behind it (without the webhook, a run ends red on **Done** with "No Webhook node found", after the tables were created). Press **Execute workflow**.
 4. Open **Data tables → newsletter_sources** and add one row per page that lists events: `name`, `url`, `enabled` ticked. Delete the example row.
 5. Open **2 Extract events**, set `MODEL_BASE_URL` and `MODEL` in **Model settings**, and publish it. Examples: `https://api.openai.com/v1`, or `http://localhost:11434/v1` for Ollama on the same machine.
 6. Open **1 Weekly draft**. Set `NEWSLETTER_NAME`, `TO_EMAIL` and `FROM_EMAIL` in **Settings**. Open the node **Extract events** and check that it points at workflow 2; pick it from the list if not. Press **Execute workflow** for a first draft, then publish it for the Monday run.
-7. `3-run-now.json` is optional. Delete it if you do not want a webhook.
+7. `3-run-now.json` is optional. Delete it if you do not want a webhook. If you keep it, open its node **Weekly draft** and pick workflow 1 from the list: an import through the editor gives workflows new ids.
 
 To deliver into your email tool instead of your inbox, replace the node **Email the draft** with a call to that tool's API (the sticky note next to it says what the item contains). Keep both of its outputs connected.
 
