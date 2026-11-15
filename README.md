@@ -9,7 +9,7 @@ Four n8n workflows on **Data Tables** and built-in nodes: no external database, 
 | Asked in the thread | What you get |
 | --- | --- |
 | Should the ChatGPT newsletter move to n8n? | The first one (local event websites) as importable workflows. It runs every Monday at 07:00 and you only review the draft. |
-| "With n8n I would have to pay for the API" | One model call per page, on text cut at 12,000 characters. The HTML is not written by the model. Each run records the tokens the API reports, in the draft and in a data table, so you can multiply by your provider's price. See [What it costs](#what-it-costs). |
+| "With n8n I would have to pay for the API" | One model call per page of up to 12,000 characters; a longer page is split into up to 3 parts, one call each. The HTML is not written by the model. Each run records the tokens the API reports, in the draft and in a data table, so you can multiply by your provider's price. See [What it costs](#what-it-costs). |
 | "Website scraping was not so good. Should I use the HTML scraping?" | No CSS selectors. A plain HTTP fetch, then a Code node turns the HTML into text (scripts, styles, menus and comments removed, links kept, schema.org event data kept). See [What a plain fetch cannot read](#what-a-plain-fetch-cannot-read). |
 | ChatGPT gives the HTML, then it is pasted into the email software | The draft arrives by email with the clean newsletter attached as an HTML file. One marked node is the place to call your email tool's API instead. |
 | The same event on two sites, or again next week | Each event appears once. Events that were in an earlier issue are remembered in a data table and left out. Past events are dropped. |
@@ -20,7 +20,7 @@ Four n8n workflows on **Data Tables** and built-in nodes: no external database, 
 
 ```
 Every Monday 07:00
-  → Sources (data table)  → Fetch page  → Page to text (cut at MAX_PAGE_CHARS)
+  → Sources (data table)  → Fetch page  → Page to text (split into parts of MAX_PAGE_CHARS, at most MAX_PAGE_PARTS)
   → Extract events (sub-workflow: one model call per page, strict JSON, one retry)
   → Pick new events (no past, no duplicates, not already sent)
   → Render newsletter (template in a Code node)
@@ -46,21 +46,21 @@ Events are remembered only after the draft was delivered. If the mail fails, the
 On your own n8n the workflows cost nothing. The model is the only paid part, and what it costs is:
 
 ```
-tokens per week = pages × (input tokens per page) + output tokens
+tokens per week = calls × (input tokens per call) + output tokens
 cost per week   = input tokens × your input price + output tokens × your output price
 ```
 
-The size cap bounds the first number. A page at the cap is 12,000 characters of text plus about 860 characters of instructions. In the tests the stand-in API counts one token per 4 characters, which is the usual rule of thumb for English, and reported:
+The size caps bound the first number: a call carries at most 12,000 characters of text plus about 860 characters of instructions, and a page makes at most 3 calls. In the tests the stand-in API counts one token per 4 characters, which is the usual rule of thumb for English, and reported:
 
 | | Input tokens | Output tokens |
 | --- | --- | --- |
-| The longest page (91,000 characters of text, cut at the cap) | 3,194 | 38 |
+| The longest page (91,000 characters of text: 3 calls, then cut) | 9,668 | 46 |
 | A short page (280 to 530 characters of text) | 287 to 349 | 4 to 172 |
-| A whole run: 11 sources, 8 readable, 10 calls with 2 retries | 5,633 | 566 |
+| A whole run: 12 sources, 8 readable, 14 calls with 2 retries | 16,172 | 650 |
 
-So the worst case is about 3,200 input tokens per page: 10 long pages a week are about 32,000 input tokens a week, or about 139,000 a month. Output is small: about 40 tokens per event (165 for a page with four). Multiply by the price per million tokens of the model you choose. No prices are quoted here because they change and differ per provider. A real tokenizer counts differently from "characters / 4", and text in other languages usually takes more tokens, so look at the real numbers after your first run: they are at the bottom of the review box in the draft and in the data table `newsletter_runs`.
+So the worst case is about 3,200 input tokens per call and 9,700 per page: 10 long pages a week are about 97,000 input tokens a week, or about 420,000 a month. Most pages are far shorter and take one call. Output is small: about 40 tokens per event (165 for a page with four). Multiply by the price per million tokens of the model you choose. No prices are quoted here because they change and differ per provider. A real tokenizer counts differently from "characters / 4", and text in other languages usually takes more tokens, so look at the real numbers after your first run: they are at the bottom of the review box in the draft and in the data table `newsletter_runs`.
 
-To spend less: point a source at the page that lists only events, lower `MAX_PAGE_CHARS`, or use a local model.
+To spend less: point a source at the page that lists only events, lower `MAX_PAGE_PARTS` (1 reads only the first 12,000 characters of a page), lower `MAX_PAGE_CHARS`, or use a local model.
 
 ## What a plain fetch cannot read
 
@@ -68,7 +68,7 @@ The workflow reads the HTML the server sends, nothing more.
 
 - **Pages built by JavaScript** arrive almost empty. A page with fewer than 200 characters of text is not sent to the model. The draft says "probably built by JavaScript". If the page carries schema.org event data in a `<script type="application/ld+json">` tag, that is kept and read, which rescues some of these pages. Otherwise look for an RSS feed, an iCal link or an API of that site, or use a scraping service that renders pages.
 - **Pages behind a login, a cookie wall or bot protection** come back as an error page or as the wall. An error status is reported. A wall with enough text on it looks like a page without events.
-- **Long pages** are cut at `MAX_PAGE_CHARS`. Events below the cut are missing, and the draft says the page was cut.
+- **Long pages** are read in parts of up to `MAX_PAGE_CHARS`, one model call each, up to `MAX_PAGE_PARTS` parts. Each part starts with the last few lines of the one before, so an event on the border is not lost; an event seen twice is listed once. Beyond the last part the page is cut, events below the cut are missing, and the draft says so.
 - **Events on several pages** (page 2, "load more") are not followed. Add each page as its own source.
 - ChatGPT's own browsing may do better than this on some sites. If one of your sources is like that, it will show in the first draft.
 
@@ -107,7 +107,8 @@ To try everything locally first: `cp .env.example .env`, fill it in, `docker com
 | Page built by JavaScript | Listed in the draft, no model call made for it. |
 | JavaScript page with schema.org event data | Event found. |
 | Page without events | Listed as a note. |
-| 91,000 characters of text | The model got 11,914 characters. The event below the cut is missing and the draft says the page was cut. No call got more than 12,000. |
+| 14,000 characters of text, events at the top and the bottom | Two calls, both events found, nothing to report. |
+| 91,000 characters of text | Three calls of about 11,900 characters. The event below the third part is missing and the draft says the page was cut. No call got more than 12,000. |
 | Model answers fenced JSON with chatter; a comma too many; a bare array | Repaired, one call each. |
 | Model answers HTTP 429 once | One retry, event found. |
 | Model answers cut-off JSON every time | Two calls, page listed in the draft, the other events delivered. |

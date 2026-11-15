@@ -17,24 +17,33 @@ const system = [
   '- No events on the page: {"events":[]}',
 ].join('\n');
 
+// A long page arrives as parts: one request each.
 return $('Pages in')
   .all()
-  .filter((item) => item.json.ok !== false && typeof item.json.text === 'string' && item.json.text.trim() !== '')
-  .map((item) => {
-    const { source, url, text } = item.json;
-    return {
-      json: {
-        source: String(source ?? url ?? 'page'),
-        url: String(url ?? ''),
-        text,
-        request: {
-          model: M.model,
-          messages: [
-            { role: 'system', content: system },
-            { role: 'user', content: `Source: ${source}\nPage address: ${url}\nToday: ${M.today}\n\nPage text:\n${text}` },
-          ],
-          ...(M.json_mode ? { response_format: { type: 'json_object' } } : {}),
+  .filter((item) => item.json.ok !== false && ((Array.isArray(item.json.parts) && item.json.parts.length) || (typeof item.json.text === 'string' && item.json.text.trim() !== '')))
+  .flatMap((item) => {
+    const { source, url } = item.json;
+    const parts = Array.isArray(item.json.parts) && item.json.parts.length ? item.json.parts : [item.json.text];
+    return parts
+      .filter((text) => typeof text === 'string' && text.trim() !== '')
+      .map((text, index) => ({
+        json: {
+          source: String(source ?? url ?? 'page'),
+          url: String(url ?? ''),
+          text,
+          part: index + 1,
+          parts: parts.length,
+          request: {
+            model: M.model,
+            messages: [
+              { role: 'system', content: system },
+              {
+                role: 'user',
+                content: `Source: ${source}\nPage address: ${url}\nToday: ${M.today}\n${parts.length > 1 ? `Part ${index + 1} of ${parts.length} of the page text. An event may continue from the part before. Copy only events that are in this part.\n` : ''}\nPage text:\n${text}`,
+              },
+            ],
+            ...(M.json_mode ? { response_format: { type: 'json_object' } } : {}),
+          },
         },
-      },
-    };
+      }));
   });

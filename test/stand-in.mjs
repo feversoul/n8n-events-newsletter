@@ -8,7 +8,9 @@
 //      broken       answers HTTP 500 in week 1, works from week 2
 //      quiet        a normal page without events
 //      spa          built by JavaScript: the HTML has no events in it
-//      huge         two events, then 60 KB of text, then one more event
+//      huge         two events, then 90 KB of text, then one more event: more than
+//                   the three parts a page may use, so the last event is cut
+//      long         one event, then 14 KB of text, then one more event: two parts
 //      ratelimited, garbled, inventor   plain pages; the model misbehaves
 //      jsonld       built by JavaScript, but with schema.org data in a script tag
 // 2. A model API in the OpenAI chat completions shape (POST /v1/chat/completions).
@@ -57,6 +59,10 @@ const fixtures = (week) => ({
     { title: 'Pottery Workshop', days: 7, time: '14:00', venue: 'Arts Centre', url: null, summary: 'Make a bowl in an afternoon.' },
     { title: 'Midnight Run', days: 8, time: '23:59', venue: 'City Park', url: null, summary: 'Five kilometres by torchlight.' },
   ],
+  long: [
+    { title: 'Open Mic Night', days: 8, time: '20:00', venue: 'Folk Club', url: null, summary: 'Songs and stories, sign up at the bar.' },
+    { title: 'Chess Evening', days: 13, time: '18:30', venue: 'Folk Club', url: null, summary: 'Bring a board if you have one.' },
+  ],
   ratelimited: [{ title: 'Swing Dance Social', days: 9, time: '20:00', venue: 'Community Hall', url: null, summary: 'Beginners welcome.' }],
   garbled: [{ title: 'Quiz Night', days: 10, time: '19:00', venue: 'Riverside Club', url: null, summary: null }],
   inventor: [
@@ -68,6 +74,7 @@ const fixtures = (week) => ({
 
 const page = (title, body, head = '') => `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title>${head}</head><body>${body}</body></html>`;
 const filler = Array.from({ length: 900 }, (_, i) => `<p>Council notice ${i + 1}: the minutes of the meeting are available at the front desk during opening hours.</p>`).join('\n');
+const longFiller = Array.from({ length: 140 }, (_, i) => `<p>Club notice ${i + 1}: the rooms can be booked for private parties on weekday evenings, ask at the bar.</p>`).join('\n');
 const padding = '<p>We are a small venue run by volunteers. Opening hours are Tuesday to Saturday from ten to six. You can reach us by phone or drop by the front desk. Parking is available behind the building and the bus stops right outside.</p>';
 
 const sites = {
@@ -105,6 +112,13 @@ ${padding}`,
       `<h1>Arts Centre</h1><p>Pottery Workshop, ${human(7)}, 14:00, Arts Centre. Make a bowl in an afternoon.</p>
 ${filler}
 <p>Midnight Run, ${human(8)}, 23:59, City Park. Five kilometres by torchlight.</p>`,
+    ),
+  long: () =>
+    page(
+      'Folk Club',
+      `<h1>Folk Club</h1><p>Open Mic Night, ${human(8)}, 20:00, Folk Club. Songs and stories, sign up at the bar.</p>
+${longFiller}
+<p>Chess Evening, ${human(13)}, 18:30, Folk Club. Bring a board if you have one.</p>`,
     ),
   ratelimited: () => page('Community Hall', `<h1>Community Hall</h1><p>Swing Dance Social, ${human(9)}, 20:00. Beginners welcome.</p>${padding}`),
   garbled: () => page('Riverside Club', `<h1>Riverside Club</h1><p>Quiz Night, ${human(10)}, 19:00.</p>${padding}`),

@@ -1,5 +1,7 @@
 // Puts first tries and retries together, checks every event and returns ONE
 // item: { events, report, sources, model_calls, prompt_tokens, completion_tokens }.
+// A long page was sent in parts: its parts are put back together here, one
+// entry in sources per page, and an event seen in two parts is kept once.
 const M = $('Model settings').first().json;
 const pages = $('Build prompt').all().map((item) => item.json);
 const first = $('Read answers').all().map((item) => item.json);
@@ -34,7 +36,8 @@ const absolute = (href, base) => {
 
 const events = [];
 const report = [];
-const sources = [];
+const bySource = new Map();
+const seen = new Set();
 let model_calls = 0;
 let prompt_tokens = 0;
 let completion_tokens = 0;
@@ -48,16 +51,19 @@ first.forEach((answer, index) => {
     prompt_tokens += call.prompt_tokens;
     completion_tokens += call.completion_tokens;
   }
+  const entry = bySource.get(`${page.source}\n${page.url}`) ?? { source: page.source, url: page.url, read: false, events: 0, listed: 0 };
+  bySource.set(`${page.source}\n${page.url}`, entry);
+  const label = page.parts > 1 ? `part ${page.part} of ${page.parts} ` : '';
   const final = answer.events !== null ? answer : retry ?? answer;
   if (final.events === null) {
-    report.push({ source: page.source, url: page.url, level: 'problem', text: `not read: ${final.failure}${retry ? ', also on the second try' : ''}` });
-    sources.push({ source: page.source, url: page.url, read: false, events: 0 });
+    report.push({ source: page.source, url: page.url, level: 'problem', text: `${label}not read: ${final.failure}${retry ? ', also on the second try' : ''}` });
     return;
   }
+  entry.read = true;
+  entry.listed += final.events.length;
 
   const pageText = plain(page.text);
   let incomplete = 0;
-  let kept = 0;
   for (const raw of final.events) {
     const title = clean(raw?.title ?? raw?.name, 200);
     let date = clean(raw?.date ?? raw?.start_date ?? raw?.startDate, 40);
@@ -72,12 +78,15 @@ first.forEach((answer, index) => {
       incomplete += 1;
       continue;
     }
+    const seenKey = `${page.source}|${date}|${plain(title)}`;
+    if (seen.has(seenKey)) continue; // in the overlap of two parts
     if (M.check_title_on_page && !pageText.includes(plain(title))) {
       report.push({ source: page.source, url: page.url, level: 'problem', text: `"${title}" left out: the model named it but the title is not in the page text` });
       continue;
     }
     const clock = time ? /^(\d{1,2}):(\d{2})/.exec(time) : null;
     const link = typeof raw?.url === 'string' && raw.url.trim() ? absolute(raw.url.trim(), page.url) : null;
+    seen.add(seenKey);
     events.push({
       title,
       date,
@@ -88,11 +97,14 @@ first.forEach((answer, index) => {
       source: page.source,
       source_url: page.url,
     });
-    kept += 1;
+    entry.events += 1;
   }
-  if (incomplete) report.push({ source: page.source, url: page.url, level: 'problem', text: `${incomplete} ${incomplete === 1 ? 'entry' : 'entries'} left out: no title or no usable date` });
-  if (final.events.length === 0) report.push({ source: page.source, url: page.url, level: 'note', text: 'no events found on the page' });
-  sources.push({ source: page.source, url: page.url, read: true, events: kept });
+  if (incomplete) report.push({ source: page.source, url: page.url, level: 'problem', text: `${label}${incomplete} ${incomplete === 1 ? 'entry' : 'entries'} left out: no title or no usable date` });
 });
+
+const sources = [...bySource.values()].map(({ source, url, read, events: count }) => ({ source, url, read, events: count }));
+for (const entry of bySource.values()) {
+  if (entry.read && entry.listed === 0) report.push({ source: entry.source, url: entry.url, level: 'note', text: 'no events found on the page' });
+}
 
 return [{ json: { events, report, sources, model_calls, prompt_tokens, completion_tokens } }];

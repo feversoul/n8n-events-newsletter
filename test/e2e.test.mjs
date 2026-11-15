@@ -13,6 +13,7 @@ const STANDIN = process.env.STANDIN_URL ?? 'http://localhost:58094';
 const KEY = { 'x-newsletter-key': 'test-newsletter-key', 'content-type': 'application/json' };
 const SITE = 'http://standin:8080'; // the stand-in as n8n sees it
 const MAX_PAGE_CHARS = 12000; // the default in the Settings node
+const MAX_PAGE_PARTS = 3; // the default in the Settings node
 
 const SOURCES = [
   { name: 'Town Hall', url: `${SITE}/townhall` },
@@ -26,10 +27,11 @@ const SOURCES = [
   { name: 'Riverside Club', url: `${SITE}/garbled` },
   { name: 'Library', url: `${SITE}/inventor` },
   { name: 'Harbour', url: `${SITE}/jsonld` },
+  { name: 'Folk Club', url: `${SITE}/long` },
   { name: 'Switched Off', url: `${SITE}/quiet`, enabled: false },
 ];
 
-const WEEK1 = ['Farmers Market', 'Jazz & Wine Evening', 'Open Air Cinema: Local Shorts', 'Café Concert – Trio Élan', 'Pottery Workshop', 'Swing Dance Social', 'Book Fair', 'Harbour Fireworks'];
+const WEEK1 = ['Farmers Market', 'Jazz & Wine Evening', 'Open Air Cinema: Local Shorts', 'Café Concert – Trio Élan', 'Pottery Workshop', 'Open Mic Night', 'Swing Dance Social', 'Book Fair', 'Harbour Fireworks', 'Chess Evening'];
 // On a page or named by the model, but must never be in a newsletter.
 const NEVER = ['Old Town Walking Tour', 'Winter Gala', 'Midnight Run', 'Quiz Night', 'Secret Rave', 'Poetry Slam', 'Ghost Event Gala', 'Cancelled Comment Concert', 'Invisible Disco'];
 
@@ -105,9 +107,9 @@ test('week 1: the right events once, failures reported, the size cap holds', asy
   assert.deepEqual(result.titles, WEEK1, 'exactly these, sorted by date');
   assert.equal(result.delivered, true);
   assert.equal(result.logged, true, 'a row in newsletter_runs');
-  assert.equal(result.pages, 11, 'the switched-off source is not fetched');
-  assert.equal(result.pages_read, 7);
-  assert.equal(result.events_found, 11);
+  assert.equal(result.pages, 12, 'the switched-off source is not fetched');
+  assert.equal(result.pages_read, 8);
+  assert.equal(result.events_found, 13);
   assert.equal(result.past, 1, 'Old Town Walking Tour');
   assert.equal(result.duplicates, 1, 'Farmers Market is on two sites');
   assert.equal(result.later, 1, 'Winter Gala is 30 days away');
@@ -117,7 +119,7 @@ test('week 1: the right events once, failures reported, the size cap holds', asy
   assert.equal(mails.length, 1);
   const [mail] = mails;
   assert.deepEqual(mail.to, ['editor@example.com']);
-  assert.match(mail.subject, /^\[DRAFT\] This week in town, \d{4}-\d{2}-\d{2}: 8 new, \d+ to check$/);
+  assert.match(mail.subject, /^\[DRAFT\] This week in town, \d{4}-\d{2}-\d{2}: 10 new, \d+ to check$/);
   assert.equal(mail.attachments.length, 1);
   const newsletter = mail.attachments[0].text;
   assert.match(mail.attachments[0].filename, /^newsletter-\d{4}-\d{2}-\d{2}\.html$/);
@@ -142,6 +144,7 @@ test('week 1: the right events once, failures reported, the size cap holds', asy
   said('Library', '1 entry left out: no title or no usable date');
   said('Arts Centre', 'long page: only the first');
   said('Quiet Venue', 'no events found');
+  assert.ok(!result.report.some((entry) => entry.source === 'Folk Club'), 'a page read in two parts has nothing to report');
   assert.equal(result.problems, 6);
   for (const text of ['DRAFT for review', 'answered HTTP 500', 'could not be fetched', 'built by JavaScript', 'not usable JSON', 'Secret Rave', 'long page', 'no events found']) {
     assert.ok(mail.html.includes(text), `the draft says: ${text}`);
@@ -149,30 +152,32 @@ test('week 1: the right events once, failures reported, the size cap holds', asy
 
   // The model: one call per readable page, one retry where the answer failed
   const callsOf = (site) => calls.filter((call) => call.site === site).length;
-  assert.equal(fetches.length, 10, 'every reachable source was fetched once');
+  assert.equal(fetches.length, 11, 'every reachable source was fetched once');
   assert.equal(callsOf('spa'), 0, 'no tokens spent on a page without text');
   assert.equal(callsOf('broken'), 0);
   assert.equal(callsOf('whatson'), 1, 'fenced JSON with chatter is repaired, not asked again');
-  assert.equal(callsOf('huge'), 1, 'a comma too many is repaired, not asked again');
+  assert.equal(callsOf('huge'), MAX_PAGE_PARTS, 'a comma too many is repaired, not asked again; the page is read in three parts, no more');
+  assert.equal(callsOf('long'), 2, 'a page a little over the cap is read in two parts, nothing cut');
   assert.equal(callsOf('jsonld'), 1, 'a bare array is accepted');
   assert.equal(callsOf('ratelimited'), 2, 'HTTP 429, then one retry');
   assert.equal(callsOf('garbled'), 2, 'cut-off JSON, then one retry');
-  assert.equal(calls.length, 10);
+  assert.equal(calls.length, 14);
   assert.ok(calls.every((call) => call.json_mode && call.model === 'stand-in-small'));
 
   // Token use is what the API reported
-  assert.equal(result.model_calls, 10);
+  assert.equal(result.model_calls, 14);
   assert.equal(result.prompt_tokens, sum(calls, 'prompt_tokens'));
   assert.equal(result.completion_tokens, sum(calls, 'completion_tokens'));
   assert.ok(mail.html.includes(`${result.prompt_tokens.toLocaleString('en')} input tokens`));
 
   // The size cap
-  const huge = calls.find((call) => call.site === 'huge');
+  const hugeCalls = calls.filter((call) => call.site === 'huge');
+  const huge = hugeCalls[0];
   assert.ok(calls.every((call) => call.page_chars <= MAX_PAGE_CHARS), `page text per call: ${calls.map((call) => call.page_chars).join(', ')}`);
-  assert.ok(huge.page_chars > MAX_PAGE_CHARS - 400, 'the long page is cut near the cap, not thrown away');
-  assert.ok(huge.prompt_tokens < 3400, `${huge.prompt_tokens} input tokens for the longest page`);
+  assert.ok(hugeCalls.every((call) => call.page_chars > MAX_PAGE_CHARS - 400), 'every part of the long page is cut near the cap, not thrown away');
+  assert.ok(hugeCalls.every((call) => call.prompt_tokens < 3400), `${huge.prompt_tokens} input tokens for a part of the longest page`);
   t.diagnostic(`per model call (site: characters of page text, input tokens, output tokens): ${calls.map((call) => `${call.site}: ${call.page_chars}, ${call.prompt_tokens}, ${call.completion_tokens}`).join(' | ')}`);
-  t.diagnostic(`longest page: ${huge.page_chars} characters of text, ${huge.prompt_tokens} input tokens`);
+  t.diagnostic(`longest page: ${hugeCalls.length} parts, ${sum(hugeCalls, 'page_chars')} characters of text, ${sum(hugeCalls, 'prompt_tokens')} input tokens`);
 });
 
 test('week 2: nothing from week 1 is repeated, new events and a recovered site come through', async (t) => {
@@ -180,8 +185,8 @@ test('week 2: nothing from week 1 is repeated, new events and a recovered site c
   const { result, mails, calls } = await run();
   t.diagnostic(`${result.model_calls} model calls, ${result.prompt_tokens} input tokens, ${result.completion_tokens} output tokens`);
   assert.deepEqual(result.titles, ['Vinyl Fair', 'Lantern Parade']);
-  assert.equal(result.already_sent, 8);
-  assert.equal(result.pages_read, 8, 'Old Depot works again');
+  assert.equal(result.already_sent, 10);
+  assert.equal(result.pages_read, 9, 'Old Depot works again');
   assert.equal(mails.length, 1);
   const newsletter = mails[0].attachments[0].text;
   for (const title of [...WEEK1, ...NEVER]) assert.equal(count(newsletter, esc(title)), 0, `"${title}" is not repeated`);
@@ -209,7 +214,7 @@ test('a delivery that fails remembers nothing: the same events are in the next r
 test('a week without new events still sends a draft that says so', async () => {
   const { result, mails } = await run();
   assert.deepEqual(result.titles, []);
-  assert.equal(result.already_sent, 11);
+  assert.equal(result.already_sent, 13);
   assert.equal(result.delivered, true);
   assert.match(mails[0].subject, /: 0 new/);
   assert.ok(mails[0].attachments[0].text.includes('No new events this week.'));

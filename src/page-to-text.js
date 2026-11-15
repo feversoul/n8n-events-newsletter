@@ -1,4 +1,6 @@
-// Turns each fetched page into plain text and cuts it at MAX_PAGE_CHARS.
+// Turns each fetched page into plain text. A page longer than MAX_PAGE_CHARS is
+// split into parts of at most that size, at most MAX_PAGE_PARTS of them; each
+// part later gets its own model call. Only what is beyond the last part is cut.
 // One answer per source, in the same order as they were asked.
 const S = $('Settings').first().json;
 const sources = $('Enabled sources').all();
@@ -84,6 +86,28 @@ function toText(html, base) {
   return out;
 }
 
+// Splits at the end of a line. Each part starts with the last few lines of the
+// part before it, so an event on the border is whole in one of them. The same
+// event may then come back twice; it is listed once.
+const PART_OVERLAP_LINES = 5;
+function split(text, max, maxParts, overlap) {
+  const lines = text.split('\n').flatMap((line) => (line.length <= max ? [line] : line.match(new RegExp(`[\\s\\S]{1,${max}}`, 'g'))));
+  const parts = [];
+  let from = 0;
+  let to = 0;
+  while (from < lines.length && parts.length < maxParts) {
+    let size = 0;
+    to = from;
+    while (to < lines.length && size + lines[to].length + 1 <= max) {
+      size += lines[to].length + 1;
+      to += 1;
+    }
+    parts.push(lines.slice(from, to).join('\n'));
+    from = to < lines.length ? Math.max(to - overlap, from + 1) : to;
+  }
+  return { parts, read_chars: lines.slice(0, to).join('\n').length };
+}
+
 return $input.all().map((item, index) => {
   const { source, url } = sources[index].json;
   const answer = item.json;
@@ -112,14 +136,10 @@ return $input.all().map((item, index) => {
     return { json: page };
   }
   page.ok = true;
-  page.text = text;
-  if (text.length > S.max_page_chars) {
-    // Cut at the end of a line when there is one close to the limit.
-    let cut = text.slice(0, S.max_page_chars);
-    const lineEnd = cut.lastIndexOf('\n');
-    if (lineEnd > S.max_page_chars - 400) cut = cut.slice(0, lineEnd);
-    page.text = cut;
-    page.cut = true;
-  }
+  const { parts, read_chars } = split(text, S.max_page_chars, S.max_page_parts, PART_OVERLAP_LINES);
+  page.parts = parts;
+  page.text = parts[0];
+  page.read_chars = read_chars;
+  page.cut = read_chars < text.length;
   return { json: page };
 });

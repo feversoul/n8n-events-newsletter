@@ -22,7 +22,7 @@ for (const page of pages) {
       source: page.source,
       url: page.url,
       level: 'note',
-      text: `long page: only the first ${page.text.length.toLocaleString('en')} of ${page.text_chars.toLocaleString('en')} characters were read. Events further down are missing; point the source at a shorter page or raise MAX_PAGE_CHARS`,
+      text: `long page: only the first ${page.read_chars.toLocaleString('en')} of ${page.text_chars.toLocaleString('en')} characters were read (${page.parts.length} ${page.parts.length === 1 ? 'call' : 'calls'} of up to ${S.max_page_chars.toLocaleString('en')}). Events further down are missing; point the source at a shorter page or raise MAX_PAGE_PARTS`,
     });
   }
 }
